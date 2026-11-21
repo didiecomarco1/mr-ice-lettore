@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Mr. Ice — Lettore barcode</title>
+<style>
+:root{color-scheme:light;--ink:#172737;--muted:#526273;--line:#dfe6ed;--blue:#075e85;--soft:#e4f2f7}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:#fff;color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{display:flex;flex-direction:column;height:100%;max-width:720px;margin:auto;padding:max(12px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:10px}
+.brand{font-weight:800;font-size:22px;letter-spacing:-.6px}.brand span{color:var(--blue)}
+a.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 14px;border:1px solid #bdd6e0;border-radius:12px;background:#fff;color:#17516b;font:600 15px/1.2 inherit;text-decoration:none;cursor:pointer}
+button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+#vista{position:relative;flex:1;min-height:260px;border-radius:14px;overflow:hidden;background:#0d1b26}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#guida{position:absolute;left:8%;right:8%;top:38%;height:24%;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 9999px rgba(13,27,38,.45)}
+#guida.ok{border-color:#9cc7d6}
+#linea{position:absolute;left:10%;right:10%;top:50%;height:2px;background:rgba(255,255,255,.8)}
+#stato{margin:10px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f9fb;min-height:44px;overflow-wrap:anywhere}
+#stato.avviso{border-left:4px solid var(--ink);font-weight:600}
+form{display:flex;gap:8px;margin-top:10px}form input{flex:1;min-width:0;min-height:44px;border:1px solid #b9c8d4;border-radius:8px;padding:9px 11px;font:inherit;color:var(--ink)}
+.small{font-size:13px;color:var(--muted);margin-top:8px}
+</style></head><body><main>
+<header><div class="brand">Mr<span>·</span>Ice</div><a id="annulla" class="btn" href="#">Annulla</a></header>
+<div id="vista"><video id="video" playsinline muted autoplay></video><div id="guida"></div><div id="linea"></div></div>
+<p id="stato" role="status" aria-live="polite">Avvio della fotocamera…</p>
+<form id="manuale"><input id="cifre" inputmode="numeric" maxlength="13" placeholder="Oppure scrivi le 13 cifre" aria-label="Barcode a 13 cifre"><button class="primary">Cerca</button></form>
+<p class="small">Inquadra il barcode Todis dell’etichetta dentro il riquadro, orizzontale e a fuoco. La lettura è automatica.</p>
+</main>
+<script>
+'use strict';
+/* Mr. Ice — lettore EAN-13 da foto. Nessuna libreria esterna.
+ * mrEanDaGrigi_(g, w, h) -> {codice, voti, letture} | null
+ * g: Uint8Array/Float32Array di luminanza (0 nero … 255 bianco), riga per riga.
+ */
+var MR_EAN_L_ = ['3211','2221','2122','1411','1132','1231','1114','1312','1213','3112'];
+var MR_EAN_G_ = ['1123','1222','2212','1141','2311','1321','4111','2131','3121','2113'];
+var MR_EAN_PRIMA_ = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+var MR_EAN_PAT_ = (function () {
+  var out = [];
+  for (var d = 0; d < 10; d++) {
+    out.push({d: d, p: 'L', w: MR_EAN_L_[d].split('').map(Number)});
+    out.push({d: d, p: 'G', w: MR_EAN_G_[d].split('').map(Number)});
+  }
+  return out;
+})();
+
+function mrEanControllo_(s12) {
+  var t = 0;
+  for (var i = 0; i < 12; i++) t += (s12.charCodeAt(i) - 48) * (i % 2 ? 3 : 1);
+  return String((10 - t % 10) % 10);
+}
+function mrEanValido_(s) { return /^\d{13}$/.test(s) && mrEanControllo_(s.slice(0, 12)) === s[12]; }
+
+/* Cifra da 4 larghezze (barre alternate). sinistra: L/G; destra: R (= L letto con colori invertiti). */
+function mrEanCifra_(w, lato) {
+  var s = w[0] + w[1] + w[2] + w[3];
+  if (s <= 0) return null;
+  var n = [w[0] * 7 / s, w[1] * 7 / s, w[2] * 7 / s, w[3] * 7 / s];
+  var best = null, best2 = 1e9;
+  for (var i = 0; i < MR_EAN_PAT_.length; i++) {
+    var p = MR_EAN_PAT_[i];
+    if (lato === 'R' && p.p !== 'L') continue;
+    var e = 0, x;
+    for (var k = 0; k < 4; k++) { x = n[k] - p.w[k]; e += 0.35 * x * x; }
+    for (k = 0; k < 3; k++) { x = n[k] + n[k + 1] - p.w[k] - p.w[k + 1]; e += x * x; }
+    if (!best || e < best.e) { if (best) best2 = Math.min(best2, best.e); best = {d: p.d, p: p.p, e: e}; }
+    else if (e < best2) best2 = e;
+  }
+  if (!best || best.e > 2.2) return null;
+  best.margine = best2 - best.e;
+  return best;
+}
+
+/* runs: larghezze alternate; scuro: true se runs[0] è una barra. Prova ogni barra come guardia iniziale. */
+function mrEanDaRuns_(runs, primoScuro) {
+  var trovati = [];
+  for (var i = 0; i + 59 <= runs.length; i++) {
+    var scuro = primoScuro ? (i % 2 === 0) : (i % 2 === 1);
+    if (!scuro) continue;
+    var tot = 0;
+    for (var k = 0; k < 59; k++) tot += runs[i + k];
+    var m = tot / 95;
+    // quiet zone a sinistra (spazio prima della guardia) almeno ~4 moduli, se presente
+    if (i > 0 && runs[i - 1] < 4 * m) continue;
+    if (i + 59 < runs.length && runs[i + 59] < 4 * m) continue;
+    // guardie: 1 1 1 · centrale 1 1 1 1 1 · finale 1 1 1
+    var coppie = [0, 1, 27, 28, 29, 30, 56, 57], ok = true;
+    for (var gi = 0; gi < coppie.length; gi++) {
+      var r = (runs[i + coppie[gi]] + runs[i + coppie[gi] + 1]) / m;
+      if (r < 1.3 || r > 2.8) { ok = false; break; }
+    }
+    if (!ok) continue;
+    var cifre = '', parita = '', qualita = 0;
+    for (var c = 0; c < 6 && ok; c++) {
+      var b = i + 3 + c * 4, x = mrEanCifra_([runs[b], runs[b + 1], runs[b + 2], runs[b + 3]], 'S');
+      if (!x) { ok = false; break; }
+      cifre += x.d; parita += x.p; qualita += x.e;
+    }
+    for (c = 0; c < 6 && ok; c++) {
+      b = i + 32 + c * 4; x = mrEanCifra_([runs[b], runs[b + 1], runs[b + 2], runs[b + 3]], 'R');
+      if (!x) { ok = false; break; }
+      cifre += x.d; qualita += x.e;
+    }
+    if (!ok) continue;
+    var prima = MR_EAN_PRIMA_.indexOf(parita);
+    if (prima < 0) continue;
+    var codice = prima + cifre;
+    if (mrEanValido_(codice)) trovati.push({codice: codice, errore: qualita});
+  }
+  return trovati;
+}
+
+/* Profilo lungo una retta -> runs dagli estremi locali (regge sfocatura e luce non uniforme). */
+function mrEanRuns_(p0) {
+  var n = p0.length;
+  if (n < 120) return null;
+  var p = new Float32Array(n);
+  for (var i = 0; i < n; i++) p[i] = (p0[Math.max(0, i - 1)] + 2 * p0[i] + p0[Math.min(n - 1, i + 1)]) / 4;
+  var mn = 1e9, mx = -1e9;
+  for (i = 0; i < n; i++) { if (p[i] < mn) mn = p[i]; if (p[i] > mx) mx = p[i]; }
+  if (mx - mn < 25) return null;
+  // ampiezza locale (min/max su blocchi) per la soglia degli estremi
+  var B = Math.max(8, Math.round(n / 40)), nb = Math.ceil(n / B), bmin = [], bmax = [];
+  for (var b = 0; b < nb; b++) {
+    var lo = 1e9, hi = -1e9;
+    for (i = b * B; i < Math.min(n, (b + 1) * B); i++) { if (p[i] < lo) lo = p[i]; if (p[i] > hi) hi = p[i]; }
+    bmin.push(lo); bmax.push(hi);
+  }
+  function delta(i) {
+    var b = (i / B) | 0, lo = 1e9, hi = -1e9;
+    for (var k = Math.max(0, b - 2); k <= Math.min(nb - 1, b + 2); k++) { if (bmin[k] < lo) lo = bmin[k]; if (bmax[k] > hi) hi = bmax[k]; }
+    return Math.max(6, (hi - lo) * 0.10);
+  }
+  // estremi alternati con isteresi
+  var ext = [], cerco = 0, iMax = 0, iMin = 0; // cerco: 0 indeciso, 1 massimo, -1 minimo
+  for (i = 1; i < n; i++) {
+    if (p[i] > p[iMax]) iMax = i;
+    if (p[i] < p[iMin]) iMin = i;
+    var d = delta(i);
+    if (cerco >= 0 && p[iMax] - p[i] > d) { if (cerco === 1 || cerco === 0) { ext.push([iMax, p[iMax], 0]); } cerco = -1; iMin = i; }
+    else if (cerco <= 0 && p[i] - p[iMin] > d) { if (cerco === -1 || cerco === 0) { ext.push([iMin, p[iMin], 1]); } cerco = 1; iMax = i; }
+  }
+  if (ext.length < 60) return null;
+  // bordi: attraversamento della media tra estremi adiacenti
+  var bordi = [];
+  for (var k = 0; k + 1 < ext.length; k++) {
+    var a = ext[k], z = ext[k + 1], t = (a[1] + z[1]) / 2, pos = (a[0] + z[0]) / 2;
+    for (i = a[0]; i < z[0]; i++) {
+      if ((p[i] - t) * (p[i + 1] - t) <= 0 && p[i] !== p[i + 1]) { pos = i + (t - p[i]) / (p[i + 1] - p[i]); break; }
+    }
+    bordi.push(pos);
+  }
+  var runs = [];
+  for (k = 0; k + 1 < bordi.length; k++) runs.push(bordi[k + 1] - bordi[k]);
+  // il run k sta attorno all'estremo k+1
+  return {runs: runs, primoScuro: ext[1][2] === 1};
+}
+
+function mrEanCampiona_(g, w, h, x0, y0, dx, dy, len) {
+  var p = new Float32Array(len), j = 0;
+  for (var t = 0; t < len; t++) {
+    var x = x0 + dx * t, y = y0 + dy * t;
+    var xi = x | 0, yi = y | 0;
+    if (xi < 0 || yi < 0 || xi >= w - 1 || yi >= h - 1) { p[j++] = -1; continue; }
+    var fx = x - xi, fy = y - yi, o = yi * w + xi;
+    p[j++] = (g[o] * (1 - fx) + g[o + 1] * fx) * (1 - fy) + (g[o + w] * (1 - fx) + g[o + w + 1] * fx) * fy;
+  }
+  // taglia i tratti fuori immagine
+  var a = 0, z = len;
+  while (a < z && p[a] < 0) a++;
+  while (z > a && p[z - 1] < 0) z--;
+  return p.subarray(a, z);
+}
+
+function mrEanDaGrigi_(g, w, h, opzioni) {
+  opzioni = opzioni || {};
+  var prefissi = opzioni.prefissi || null; // es. ['7982']: solo barcode Todis
+  var voti = {}, errori = {}, letture = 0, cx = w / 2, cy = h / 2, diag = Math.sqrt(w * w + h * h);
+  var angoli = opzioni.angoli || [0, 90, 15, -15, 75, -75, 30, -30, 60, -60, 45, -45, 8, -8, 82, -82, 22, -22, 68, -68, 38, -38, 52, -52];
+  var linee = opzioni.linee || Math.max(36, Math.round(diag * 0.9 / (opzioni.passo || 10))), limite = opzioni.limiteMs || 2500, t0 = Date.now();
+  for (var ai = 0; ai < angoli.length; ai++) {
+    var ang = angoli[ai] * Math.PI / 180, dx = Math.cos(ang), dy = Math.sin(ang), nx = -dy, ny = dx;
+    for (var li = 0; li < linee; li++) {
+      var off = (li / (linee - 1) - 0.5) * diag * 0.9;
+      var x0 = cx + nx * off - dx * diag / 2, y0 = cy + ny * off - dy * diag / 2;
+      var p = mrEanCampiona_(g, w, h, x0, y0, dx, dy, Math.round(diag));
+      var r = mrEanRuns_(p);
+      if (!r) continue;
+      var rev = r.runs.slice().reverse(), revScuro = (r.runs.length % 2 === 1) ? r.primoScuro : !r.primoScuro;
+      var trovati = mrEanDaRuns_(r.runs, r.primoScuro).concat(mrEanDaRuns_(rev, revScuro));
+      if (prefissi) trovati = trovati.filter(function (x) { return prefissi.some(function (p) { return x.codice.indexOf(p) === 0; }); });
+      for (var k = 0; k < trovati.length; k++) {
+        voti[trovati[k].codice] = (voti[trovati[k].codice] || 0) + 1; letture++;
+        errori[trovati[k].codice] = Math.min(errori[trovati[k].codice] === undefined ? 1e9 : errori[trovati[k].codice], trovati[k].errore);
+      }
+    }
+    var migliore = mrEanMigliore_(voti);
+    if (migliore && migliore.voti >= 3) break;
+    if (Date.now() - t0 > limite) break;
+  }
+  var m = mrEanMigliore_(voti);
+  if (!m || m.voti < 2) return null;
+  m.letture = letture; m.errore = errori[m.codice];
+  return m;
+}
+function mrEanMigliore_(voti) {
+  var best = null, secondo = 0;
+  Object.keys(voti).forEach(function (c) {
+    if (!best || voti[c] > best.voti) { if (best) secondo = Math.max(secondo, best.voti); best = {codice: c, voti: voti[c]}; }
+    else secondo = Math.max(secondo, voti[c]);
+  });
+  if (best && secondo >= best.voti) return null; // pareggio: non affidabile
+  return best;
+}
+
+/* Luminanza da RGBA. */
+function mrEanGrigi_(rgba, w, h) {
+  var g = new Uint8Array(w * h);
+  for (var i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+  return g;
+}
+
+/* Lettore dal vivo: legge solo dentro il riquadro, conferma con 2 letture uguali, poi torna in Mr. Ice. */
+var MR_APP_ = 'https://script.google.com/macros/s/AKfycbyS2IhHORBrwUU5fxRwamd0zbDW-mxPIEuS2yMgyYvufP19nGyhoeSXd79UaaMoTu5q/exec';
+var MR_PREFISSI_ = ['7982'];
+var video = document.getElementById('video'), stato = document.getElementById('stato'), guida = document.getElementById('guida');
+var tela = document.createElement('canvas'), ctx = tela.getContext('2d', {willReadFrequently: true});
+var flusso = null, attivo = false, ultimo = null, conferme = 0, finito = false;
+function dici(t, avviso) { stato.textContent = t; stato.className = avviso ? 'avviso' : ''; }
+function vaiA(barcode) {
+  finito = true; ferma();
+  location.replace(MR_APP_ + '?' + new URLSearchParams({vista: 'articoli', cerca: barcode}).toString());
+}
+function ferma() { attivo = false; if (flusso) flusso.getTracks().forEach(function (t) { t.stop(); }); flusso = null; }
+document.getElementById('annulla').href = MR_APP_ + '?vista=articoli';
+document.getElementById('manuale').addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  var v = document.getElementById('cifre').value.replace(/\s+/g, '');
+  if (!mrEanValido_(v)) { dici('Barcode non valido: servono 13 cifre con cifra di controllo corretta.', true); return; }
+  vaiA(v);
+});
+function ciclo() {
+  if (!attivo) return;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (vw && vh) {
+    // riquadro guida in coordinate video (object-fit: cover)
+    var box = document.getElementById('vista').getBoundingClientRect(), g = guida.getBoundingClientRect();
+    var s = Math.max(box.width / vw, box.height / vh), ox = (vw * s - box.width) / 2, oy = (vh * s - box.height) / 2;
+    var sx = (g.left - box.left + ox) / s, sy = (g.top - box.top + oy) / s, sw = g.width / s, sh = g.height / s;
+    var scala = Math.min(1, 1000 / sw), w = Math.round(sw * scala), h = Math.round(sh * scala);
+    tela.width = w; tela.height = h;
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+    var r = mrEanDaGrigi_(mrEanGrigi_(ctx.getImageData(0, 0, w, h).data, w, h), w, h,
+      {angoli: [0, 6, -6, 12, -12, 20, -20], passo: 5, limiteMs: 250, prefissi: MR_PREFISSI_});
+    if (!r) {
+      // una sola lettura nel fotogramma: vale come conferma parziale
+      var uno = mrEanDaGrigiUno_(w, h);
+      r = uno;
+    }
+    if (r) {
+      conferme = (ultimo === r.codice) ? conferme + (r.voti || 1) : (r.voti || 1);
+      ultimo = r.codice;
+      guida.className = 'ok';
+      if (conferme >= 2) { dici('Letto ' + r.codice + '. Apro Mr. Ice…'); vaiA(r.codice); return; }
+    }
+  }
+  setTimeout(ciclo, 60);
+}
+/* Fotogramma con un solo voto: utile su etichette piccole; serve comunque la conferma nel fotogramma successivo. */
+function mrEanDaGrigiUno_(w, h) {
+  var g = mrEanGrigi_(ctx.getImageData(0, 0, w, h).data, w, h), voti = {};
+  [0, 6, -6].forEach(function (a) {
+    var ang = a * Math.PI / 180, dx = Math.cos(ang), dy = Math.sin(ang), diag = Math.sqrt(w * w + h * h);
+    for (var li = 0; li < 24; li++) {
+      var off = (li / 23 - 0.5) * h * 0.9, x0 = w / 2 - dy * off - dx * diag / 2, y0 = h / 2 + dx * off - dy * diag / 2;
+      var r = mrEanRuns_(mrEanCampiona_(g, w, h, x0, y0, dx, dy, Math.round(diag)));
+      if (!r) continue;
+      var rev = r.runs.slice().reverse(), rs = (r.runs.length % 2 === 1) ? r.primoScuro : !r.primoScuro;
+      mrEanDaRuns_(r.runs, r.primoScuro).concat(mrEanDaRuns_(rev, rs)).forEach(function (x) {
+        if (MR_PREFISSI_.some(function (p) { return x.codice.indexOf(p) === 0; })) voti[x.codice] = (voti[x.codice] || 0) + 1;
+      });
+    }
+  });
+  var k = Object.keys(voti);
+  return k.length === 1 ? {codice: k[0], voti: 1} : null;
+}
+function avvia() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { dici('Fotocamera non disponibile in questo browser. Scrivi le 13 cifre.', true); return; }
+  navigator.mediaDevices.getUserMedia({audio: false, video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}})
+    .then(function (s) {
+      flusso = s; video.srcObject = s;
+      return video.play();
+    }).then(function () {
+      var t = flusso && flusso.getVideoTracks()[0], c = t && t.getCapabilities ? t.getCapabilities() : {};
+      if (c.focusMode && c.focusMode.indexOf('continuous') >= 0) t.applyConstraints({advanced: [{focusMode: 'continuous'}]}).catch(function () {});
+      attivo = true; dici('Inquadra il barcode nel riquadro.'); ciclo();
+    }).catch(function (e) {
+      dici('Fotocamera non autorizzata o non disponibile (' + (e.name || e.message) + '). Consenti l’accesso alla fotocamera per questo sito, oppure scrivi le 13 cifre.', true);
+    });
+}
+document.addEventListener('visibilitychange', function () { if (document.hidden) ferma(); else if (!finito && !attivo) avvia(); });
+avvia();
+</script></body></html>
