@@ -9,12 +9,16 @@
 main{display:flex;flex-direction:column;height:100%;max-width:720px;margin:auto;padding:max(12px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))}
 header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:10px}
 .brand{font-weight:800;font-size:22px;letter-spacing:-.6px}.brand span{color:var(--blue)}
-a.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 14px;border:1px solid #bdd6e0;border-radius:12px;background:#fff;color:#17516b;font:600 15px/1.2 inherit;text-decoration:none;cursor:pointer}
-button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+a.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 14px;border:1px solid #bdd6e0;border-radius:12px;background:#fff;color:#17516b;font-family:inherit;font-size:15px;font-weight:600;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer}
+button.primary,a.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
 #vista{position:relative;flex:1;min-height:260px;border-radius:14px;overflow:hidden;background:#0d1b26}
 video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #guida{position:absolute;left:8%;right:8%;top:38%;height:24%;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 9999px rgba(13,27,38,.45)}
 #guida.ok{border-color:#9cc7d6}
+#guida.letto{border-color:#1e9e4a;box-shadow:0 0 0 9999px rgba(13,27,38,.45),0 0 22px 6px rgba(30,158,74,.85)}
+#esito{display:none;margin-top:10px;padding:12px 14px;border:2px solid #1e9e4a;border-radius:12px;background:#fff}
+#esito.on{display:block}#esito .cod{font-weight:800;font-size:22px;margin-top:2px}
+#esito .az{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}#esito .az>*{flex:1 1 160px}
 #linea{position:absolute;left:10%;right:10%;top:50%;height:2px;background:rgba(255,255,255,.8)}
 #stato{margin:10px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f9fb;min-height:44px;overflow-wrap:anywhere}
 #stato.avviso{border-left:4px solid var(--ink);font-weight:600}
@@ -24,6 +28,8 @@ form{display:flex;gap:8px;margin-top:10px}form input{flex:1;min-width:0;min-heig
 <header><div class="brand">Mr<span>·</span>Ice</div><a id="annulla" class="btn" href="#">Annulla</a></header>
 <div id="vista"><video id="video" playsinline muted autoplay></video><div id="guida"></div><div id="linea"></div></div>
 <p id="stato" role="status" aria-live="polite">Avvio della fotocamera…</p>
+<div id="esito" role="status" aria-live="polite"><div>Barcode <b id="eBc"></b></div><div class="cod" id="eCod"></div>
+<div class="az"><a id="apri" class="btn primary" href="#">Apri scheda articolo</a><button id="ancora" type="button">Scansiona di nuovo</button></div></div>
 <form id="manuale"><input id="cifre" inputmode="numeric" maxlength="13" placeholder="Oppure scrivi le 13 cifre" aria-label="Barcode a 13 cifre"><button class="primary">Cerca</button></form>
 <p class="small">Inquadra il barcode Todis dell’etichetta dentro il riquadro, orizzontale e a fuoco. La lettura è automatica.</p>
 </main>
@@ -221,24 +227,45 @@ function mrEanGrigi_(rgba, w, h) {
   return g;
 }
 
-/* Lettore dal vivo: legge solo dentro il riquadro, conferma con 2 letture uguali, poi torna in Mr. Ice. */
+/* Lettore dal vivo: legge solo dentro il riquadro, conferma con 2 letture uguali, mirino verde e pulsante per aprire la scheda in Mr. Ice. */
 var MR_APP_ = 'https://script.google.com/macros/s/AKfycbyS2IhHORBrwUU5fxRwamd0zbDW-mxPIEuS2yMgyYvufP19nGyhoeSXd79UaaMoTu5q/exec';
 var MR_PREFISSI_ = ['7982'];
 var video = document.getElementById('video'), stato = document.getElementById('stato'), guida = document.getElementById('guida');
 var tela = document.createElement('canvas'), ctx = tela.getContext('2d', {willReadFrequently: true});
 var flusso = null, attivo = false, ultimo = null, conferme = 0, finito = false;
 function dici(t, avviso) { stato.textContent = t; stato.className = avviso ? 'avviso' : ''; }
-function vaiA(barcode) {
-  finito = true; ferma();
-  location.replace(MR_APP_ + '?' + new URLSearchParams({vista: 'articoli', cerca: barcode}).toString());
+/* Barcode Todis: 7982 + codice a 6 cifre + variante a 2 cifre + controllo -> codice articolo (es. 11189.01). */
+function codiceDa(barcode) {
+  return /^7982\d{9}$/.test(barcode) ? String(parseInt(barcode.slice(4, 10), 10)) + '.' + barcode.slice(10, 12) : null;
 }
+/* Lettura confermata: mirino verde, scansione ferma, apertura solo su comando. */
+function letto(barcode) {
+  attivo = false;
+  try { video.pause(); } catch (ignore) {}
+  var codice = codiceDa(barcode), apri = document.getElementById('apri');
+  guida.className = 'letto';
+  document.getElementById('eBc').textContent = barcode;
+  document.getElementById('eCod').textContent = codice ? 'Articolo ' + codice : 'Barcode non Todis';
+  apri.href = MR_APP_ + '?' + new URLSearchParams(codice ? {vista: 'scheda', codice: codice} : {vista: 'articoli', cerca: barcode}).toString();
+  apri.textContent = codice ? 'Apri scheda articolo' : 'Cerca in Mr. Ice';
+  document.getElementById('esito').className = 'on';
+  stato.hidden = true;
+  if (navigator.vibrate) navigator.vibrate(80);
+}
+function ancora() {
+  document.getElementById('esito').className = ''; stato.hidden = false; guida.className = '';
+  ultimo = null; conferme = 0;
+  if (flusso) { video.play().catch(function () {}); attivo = true; dici('Inquadra il barcode nel riquadro.'); ciclo(); } else avvia();
+}
+document.getElementById('apri').addEventListener('click', function () { finito = true; ferma(); });
+document.getElementById('ancora').addEventListener('click', ancora);
 function ferma() { attivo = false; if (flusso) flusso.getTracks().forEach(function (t) { t.stop(); }); flusso = null; }
 document.getElementById('annulla').href = MR_APP_ + '?vista=articoli';
 document.getElementById('manuale').addEventListener('submit', function (ev) {
   ev.preventDefault();
   var v = document.getElementById('cifre').value.replace(/\s+/g, '');
   if (!mrEanValido_(v)) { dici('Barcode non valido: servono 13 cifre con cifra di controllo corretta.', true); return; }
-  vaiA(v);
+  attivo = false; letto(v);
 });
 function ciclo() {
   if (!attivo) return;
@@ -262,7 +289,7 @@ function ciclo() {
       conferme = (ultimo === r.codice) ? conferme + (r.voti || 1) : (r.voti || 1);
       ultimo = r.codice;
       guida.className = 'ok';
-      if (conferme >= 2) { dici('Letto ' + r.codice + '. Apro Mr. Ice…'); vaiA(r.codice); return; }
+      if (conferme >= 2) { letto(r.codice); return; }
     }
   }
   setTimeout(ciclo, 60);
