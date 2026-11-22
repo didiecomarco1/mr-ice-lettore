@@ -25,14 +25,15 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #esito .az{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}#esito .az>*{flex:1 1 160px}
 form{display:flex;gap:8px;margin-top:10px}form input{flex:1;min-width:0;min-height:44px;border:1px solid #b9c8d4;border-radius:8px;padding:9px 11px;font:inherit;color:var(--ink)}
 .small{font-size:13px;color:var(--muted);margin-top:8px}
+[hidden]{display:none!important}
 </style></head><body><main>
 <header><div class="brand">Mr<span>·</span>Ice</div><a id="annulla" class="btn" href="#">Torna a Mr. Ice</a></header>
 <div id="vista"><video id="video" playsinline muted autoplay></video><div id="guida" role="button" tabindex="0" aria-label="Riquadro di lettura: tocca quando è verde"></div><div id="linea"></div><div id="etichetta" hidden></div></div>
 <p id="stato" role="status" aria-live="polite">Avvio della fotocamera…</p>
 <div id="esito" role="dialog" aria-label="Barcode letto"><div>Barcode <b id="eBc"></b></div><div class="cod" id="eCod"></div>
-<div class="az"><a id="apri" class="btn primary" href="#" target="_blank" rel="noopener">Apri scheda articolo</a><button id="chiudi" type="button">Chiudi</button></div></div>
+<div class="az"><button id="aggiungi" class="primary" type="button" hidden>Aggiungi alla bozza</button><a id="apri" class="btn primary" href="#" target="_blank" rel="noopener">Apri scheda articolo</a><button id="chiudi" type="button">Chiudi</button></div></div>
 <form id="manuale"><input id="cifre" inputmode="numeric" maxlength="13" placeholder="Oppure scrivi le 13 cifre" aria-label="Barcode a 13 cifre"><button class="primary">Cerca</button></form>
-<p class="small">Inquadra il barcode Todis: quando il riquadro diventa verde, toccalo per aprire la scheda. La fotocamera resta sempre attiva.</p>
+<p class="small" id="istr">Inquadra il barcode Todis: quando il riquadro diventa verde, toccalo per aprire la scheda. La fotocamera resta sempre attiva.</p>
 </main>
 <script>
 'use strict';
@@ -233,6 +234,12 @@ function mrEanGrigi_(rgba, w, h) {
 var MR_APP_ = 'https://script.google.com/macros/s/AKfycbyS2IhHORBrwUU5fxRwamd0zbDW-mxPIEuS2yMgyYvufP19nGyhoeSXd79UaaMoTu5q/exec';
 var MR_PREFISSI_ = ['7982'];
 var MR_VERDE_MS_ = 1200; // il verde si spegne se il barcode non viene riletto per questo tempo
+/* Modo ordine (aperto dalla bozza ordine di MI_Importatore): oltre a «Apri scheda articolo» c'è «Aggiungi alla bozza».
+ * Il codice torna alla bozza con postMessage; se la bozza non risponde, si apre la pagina ordine con ?aggiungi=codice. */
+var MR_Q_ = new URLSearchParams(location.search);
+var MR_ORDINE_ = MR_Q_.get('modo') === 'ordine';
+var MR_RITORNO_ = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(MR_Q_.get('ritorno') || '') ? MR_Q_.get('ritorno') : null;
+var scelta = null, attesaEsito = null;
 var video = document.getElementById('video'), stato = document.getElementById('stato'), guida = document.getElementById('guida');
 var etichetta = document.getElementById('etichetta'), esito = document.getElementById('esito'), apri = document.getElementById('apri');
 var tela = document.createElement('canvas'), ctx = tela.getContext('2d', {willReadFrequently: true});
@@ -255,6 +262,9 @@ function mostraScelta(barcode) {
   document.getElementById('eCod').textContent = codice ? 'Articolo ' + codice : 'Barcode non Todis';
   apri.href = MR_APP_ + '?' + new URLSearchParams(codice ? {vista: 'scheda', codice: codice} : {vista: 'articoli', cerca: barcode}).toString();
   apri.textContent = codice ? 'Apri scheda articolo' : 'Cerca in Mr. Ice';
+  scelta = {barcode: barcode, codice: codice};
+  document.getElementById('aggiungi').hidden = !(MR_ORDINE_ && codice);
+  apri.className = MR_ORDINE_ && codice ? 'btn' : 'btn primary';
   esito.className = 'on';
 }
 function chiudiScelta() { esito.className = ''; }
@@ -267,6 +277,34 @@ guida.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.k
 apri.addEventListener('click', function () { setTimeout(chiudiScelta, 300); });
 document.getElementById('chiudi').addEventListener('click', chiudiScelta);
 document.getElementById('annulla').href = MR_APP_ + '?vista=articoli';
+if (MR_ORDINE_) {
+  var annulla = document.getElementById('annulla');
+  annulla.textContent = 'Torna alla bozza';
+  annulla.href = MR_RITORNO_ ? MR_RITORNO_ + '?pagina=ordine' : '#';
+  annulla.addEventListener('click', function (ev) { if (window.opener && !window.opener.closed) { ev.preventDefault(); window.close(); } });
+  document.getElementById('istr').textContent = 'Inquadra il barcode Todis: quando il riquadro diventa verde, toccalo e scegli «Aggiungi alla bozza» oppure «Apri scheda articolo». La fotocamera resta sempre attiva.';
+}
+function ripiego(s) {
+  if (MR_RITORNO_) location.href = MR_RITORNO_ + '?' + new URLSearchParams({pagina: 'ordine', aggiungi: s.codice}).toString();
+  else dici('Bozza non raggiungibile: torna alla bozza e scrivi il codice ' + s.codice + '.', true);
+}
+document.getElementById('aggiungi').addEventListener('click', function () {
+  var s = scelta;
+  if (!s || !s.codice) return;
+  chiudiScelta();
+  if (window.opener && !window.opener.closed) {
+    try { window.opener.postMessage({tipo: 'mrice-ordine-aggiungi', codice: s.codice, barcode: s.barcode}, '*'); } catch (e) { ripiego(s); return; }
+    dici('Invio di ' + s.codice + ' alla bozza…');
+    clearTimeout(attesaEsito);
+    attesaEsito = setTimeout(function () { ripiego(s); }, 2500);
+  } else ripiego(s);
+});
+window.addEventListener('message', function (ev) {
+  if (!/^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(ev.origin) || !ev.data || ev.data.tipo !== 'mrice-ordine-esito') return;
+  clearTimeout(attesaEsito);
+  if (ev.data.ok) dici('Aggiunto alla bozza: ' + ev.data.codice + ' ' + (ev.data.descrizione || '') + '. Inquadra il prossimo.');
+  else dici('Codice ' + ev.data.codice + ' non presente nel catalogo: non aggiunto.', true);
+});
 document.getElementById('manuale').addEventListener('submit', function (ev) {
   ev.preventDefault();
   var v = document.getElementById('cifre').value.replace(/\s+/g, '');
