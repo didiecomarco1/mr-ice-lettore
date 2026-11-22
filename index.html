@@ -4,7 +4,7 @@
 <meta name="robots" content="noindex">
 <title>Mr. Ice — Lettore barcode</title>
 <style>
-:root{color-scheme:light;--ink:#172737;--muted:#526273;--line:#dfe6ed;--blue:#075e85;--soft:#e4f2f7}
+:root{color-scheme:light;--ink:#172737;--muted:#526273;--line:#dfe6ed;--blue:#075e85;--soft:#e4f2f7;--verde:#1e9e4a}
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#fff;color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 main{display:flex;flex-direction:column;height:100%;max-width:720px;margin:auto;padding:max(12px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))}
 header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:10px}
@@ -13,25 +13,26 @@ a.btn,button{display:inline-flex;align-items:center;justify-content:center;min-h
 button.primary,a.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
 #vista{position:relative;flex:1;min-height:260px;border-radius:14px;overflow:hidden;background:#0d1b26}
 video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-#guida{position:absolute;left:8%;right:8%;top:38%;height:24%;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 9999px rgba(13,27,38,.45)}
+#guida{position:absolute;left:8%;right:8%;top:38%;height:24%;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 9999px rgba(13,27,38,.45);cursor:pointer;-webkit-tap-highlight-color:transparent}
 #guida.ok{border-color:#9cc7d6}
-#guida.letto{border-color:#1e9e4a;box-shadow:0 0 0 9999px rgba(13,27,38,.45),0 0 22px 6px rgba(30,158,74,.85)}
-#esito{display:none;margin-top:10px;padding:12px 14px;border:2px solid #1e9e4a;border-radius:12px;background:#fff}
-#esito.on{display:block}#esito .cod{font-weight:800;font-size:22px;margin-top:2px}
-#esito .az{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}#esito .az>*{flex:1 1 160px}
-#linea{position:absolute;left:10%;right:10%;top:50%;height:2px;background:rgba(255,255,255,.8)}
+#guida.letto{border-color:var(--verde);box-shadow:0 0 0 9999px rgba(13,27,38,.45),0 0 22px 6px rgba(30,158,74,.85)}
+#linea{position:absolute;left:10%;right:10%;top:50%;height:2px;background:rgba(255,255,255,.8);pointer-events:none}
+#etichetta{position:absolute;left:50%;top:calc(62% + 10px);transform:translateX(-50%);padding:6px 12px;border-radius:999px;background:var(--verde);color:#fff;font-weight:700;font-size:15px;white-space:nowrap;pointer-events:none}
 #stato{margin:10px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f9fb;min-height:44px;overflow-wrap:anywhere}
 #stato.avviso{border-left:4px solid var(--ink);font-weight:600}
+#esito{display:none;margin-top:10px;padding:12px 14px;border:2px solid var(--verde);border-radius:12px;background:#fff}
+#esito.on{display:block}#esito .cod{font-weight:800;font-size:22px;margin-top:2px}
+#esito .az{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}#esito .az>*{flex:1 1 160px}
 form{display:flex;gap:8px;margin-top:10px}form input{flex:1;min-width:0;min-height:44px;border:1px solid #b9c8d4;border-radius:8px;padding:9px 11px;font:inherit;color:var(--ink)}
 .small{font-size:13px;color:var(--muted);margin-top:8px}
 </style></head><body><main>
-<header><div class="brand">Mr<span>·</span>Ice</div><a id="annulla" class="btn" href="#">Annulla</a></header>
-<div id="vista"><video id="video" playsinline muted autoplay></video><div id="guida"></div><div id="linea"></div></div>
+<header><div class="brand">Mr<span>·</span>Ice</div><a id="annulla" class="btn" href="#">Torna a Mr. Ice</a></header>
+<div id="vista"><video id="video" playsinline muted autoplay></video><div id="guida" role="button" tabindex="0" aria-label="Riquadro di lettura: tocca quando è verde"></div><div id="linea"></div><div id="etichetta" hidden></div></div>
 <p id="stato" role="status" aria-live="polite">Avvio della fotocamera…</p>
-<div id="esito" role="status" aria-live="polite"><div>Barcode <b id="eBc"></b></div><div class="cod" id="eCod"></div>
-<div class="az"><a id="apri" class="btn primary" href="#">Apri scheda articolo</a><button id="ancora" type="button">Scansiona di nuovo</button></div></div>
+<div id="esito" role="dialog" aria-label="Barcode letto"><div>Barcode <b id="eBc"></b></div><div class="cod" id="eCod"></div>
+<div class="az"><a id="apri" class="btn primary" href="#" target="_blank" rel="noopener">Apri scheda articolo</a><button id="chiudi" type="button">Chiudi</button></div></div>
 <form id="manuale"><input id="cifre" inputmode="numeric" maxlength="13" placeholder="Oppure scrivi le 13 cifre" aria-label="Barcode a 13 cifre"><button class="primary">Cerca</button></form>
-<p class="small">Inquadra il barcode Todis dell’etichetta dentro il riquadro, orizzontale e a fuoco. La lettura è automatica.</p>
+<p class="small">Inquadra il barcode Todis: quando il riquadro diventa verde, toccalo per aprire la scheda. La fotocamera resta sempre attiva.</p>
 </main>
 <script>
 'use strict';
@@ -227,47 +228,53 @@ function mrEanGrigi_(rgba, w, h) {
   return g;
 }
 
-/* Lettore dal vivo: legge solo dentro il riquadro, conferma con 2 letture uguali, mirino verde e pulsante per aprire la scheda in Mr. Ice. */
+/* Lettore dal vivo: la fotocamera non si ferma mai. Il riquadro è verde solo mentre il barcode è inquadrato;
+ * toccando il riquadro verde compare «Apri scheda articolo» (nuova scheda del browser). */
 var MR_APP_ = 'https://script.google.com/macros/s/AKfycbyS2IhHORBrwUU5fxRwamd0zbDW-mxPIEuS2yMgyYvufP19nGyhoeSXd79UaaMoTu5q/exec';
 var MR_PREFISSI_ = ['7982'];
+var MR_VERDE_MS_ = 1200; // il verde si spegne se il barcode non viene riletto per questo tempo
 var video = document.getElementById('video'), stato = document.getElementById('stato'), guida = document.getElementById('guida');
+var etichetta = document.getElementById('etichetta'), esito = document.getElementById('esito'), apri = document.getElementById('apri');
 var tela = document.createElement('canvas'), ctx = tela.getContext('2d', {willReadFrequently: true});
-var flusso = null, attivo = false, ultimo = null, conferme = 0, finito = false;
+var flusso = null, attivo = false, avviando = false, ultimo = null, conferme = 0, visto = null, timer = null;
 function dici(t, avviso) { stato.textContent = t; stato.className = avviso ? 'avviso' : ''; }
 /* Barcode Todis: 7982 + codice a 6 cifre + variante a 2 cifre + controllo -> codice articolo (es. 11189.01). */
 function codiceDa(barcode) {
   return /^7982\d{9}$/.test(barcode) ? String(parseInt(barcode.slice(4, 10), 10)) + '.' + barcode.slice(10, 12) : null;
 }
-/* Lettura confermata: mirino verde, scansione ferma, apertura solo su comando. */
-function letto(barcode) {
-  attivo = false;
-  try { video.pause(); } catch (ignore) {}
-  var codice = codiceDa(barcode), apri = document.getElementById('apri');
-  guida.className = 'letto';
+function verde() { return !!(visto && Date.now() - visto.t < MR_VERDE_MS_); }
+function aggiornaGuida() {
+  var on = verde();
+  guida.className = on ? 'letto' : (ultimo ? 'ok' : '');
+  etichetta.hidden = !on;
+  if (on) etichetta.textContent = (codiceDa(visto.codice) || visto.codice) + ' · tocca il riquadro';
+}
+function mostraScelta(barcode) {
+  var codice = codiceDa(barcode);
   document.getElementById('eBc').textContent = barcode;
   document.getElementById('eCod').textContent = codice ? 'Articolo ' + codice : 'Barcode non Todis';
   apri.href = MR_APP_ + '?' + new URLSearchParams(codice ? {vista: 'scheda', codice: codice} : {vista: 'articoli', cerca: barcode}).toString();
   apri.textContent = codice ? 'Apri scheda articolo' : 'Cerca in Mr. Ice';
-  document.getElementById('esito').className = 'on';
-  stato.hidden = true;
-  if (navigator.vibrate) navigator.vibrate(80);
+  esito.className = 'on';
 }
-function ancora() {
-  document.getElementById('esito').className = ''; stato.hidden = false; guida.className = '';
-  ultimo = null; conferme = 0;
-  if (flusso) { video.play().catch(function () {}); attivo = true; dici('Inquadra il barcode nel riquadro.'); ciclo(); } else avvia();
+function chiudiScelta() { esito.className = ''; }
+function tocca() {
+  if (verde()) { mostraScelta(visto.codice); dici('Inquadra il barcode nel riquadro.'); }
+  else dici('Riquadro non verde: inquadra il barcode finché diventa verde, poi tocca.', true);
 }
-document.getElementById('apri').addEventListener('click', function () { finito = true; ferma(); });
-document.getElementById('ancora').addEventListener('click', ancora);
-function ferma() { attivo = false; if (flusso) flusso.getTracks().forEach(function (t) { t.stop(); }); flusso = null; }
+guida.addEventListener('click', tocca);
+guida.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); tocca(); } });
+apri.addEventListener('click', function () { setTimeout(chiudiScelta, 300); });
+document.getElementById('chiudi').addEventListener('click', chiudiScelta);
 document.getElementById('annulla').href = MR_APP_ + '?vista=articoli';
 document.getElementById('manuale').addEventListener('submit', function (ev) {
   ev.preventDefault();
   var v = document.getElementById('cifre').value.replace(/\s+/g, '');
   if (!mrEanValido_(v)) { dici('Barcode non valido: servono 13 cifre con cifra di controllo corretta.', true); return; }
-  attivo = false; letto(v);
+  mostraScelta(v);
 });
 function ciclo() {
+  timer = null;
   if (!attivo) return;
   var vw = video.videoWidth, vh = video.videoHeight;
   if (vw && vh) {
@@ -279,22 +286,21 @@ function ciclo() {
     tela.width = w; tela.height = h;
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
     var r = mrEanDaGrigi_(mrEanGrigi_(ctx.getImageData(0, 0, w, h).data, w, h), w, h,
-      {angoli: [0, 6, -6, 12, -12, 20, -20], passo: 5, limiteMs: 250, prefissi: MR_PREFISSI_});
-    if (!r) {
-      // una sola lettura nel fotogramma: vale come conferma parziale
-      var uno = mrEanDaGrigiUno_(w, h);
-      r = uno;
-    }
+      {angoli: [0, 6, -6, 12, -12, 20, -20], passo: 5, limiteMs: 250, prefissi: MR_PREFISSI_}) || mrEanDaGrigiUno_(w, h);
+    var ora = Date.now();
     if (r) {
-      conferme = (ultimo === r.codice) ? conferme + (r.voti || 1) : (r.voti || 1);
-      ultimo = r.codice;
-      guida.className = 'ok';
-      if (conferme >= 2) { letto(r.codice); return; }
-    }
+      if (visto && r.codice === visto.codice) visto.t = ora;           // barcode già confermato: resta verde
+      else {
+        conferme = (ultimo === r.codice) ? conferme + (r.voti || 1) : (r.voti || 1);
+        ultimo = r.codice;
+        if (conferme >= 2) { visto = {codice: r.codice, t: ora}; conferme = 0; if (navigator.vibrate) navigator.vibrate(60); }
+      }
+    } else if (!verde()) { ultimo = null; conferme = 0; }
+    aggiornaGuida();
   }
-  setTimeout(ciclo, 60);
+  timer = setTimeout(ciclo, 60);
 }
-/* Fotogramma con un solo voto: utile su etichette piccole; serve comunque la conferma nel fotogramma successivo. */
+/* Fotogramma con un solo voto: utile su etichette piccole; serve comunque la conferma nei fotogrammi successivi. */
 function mrEanDaGrigiUno_(w, h) {
   var g = mrEanGrigi_(ctx.getImageData(0, 0, w, h).data, w, h), voti = {};
   [0, 6, -6].forEach(function (a) {
@@ -312,8 +318,15 @@ function mrEanDaGrigiUno_(w, h) {
   var k = Object.keys(voti);
   return k.length === 1 ? {codice: k[0], voti: 1} : null;
 }
+function ferma() {
+  attivo = false; if (timer) { clearTimeout(timer); timer = null; }
+  if (flusso) flusso.getTracks().forEach(function (t) { t.stop(); });
+  flusso = null; visto = null; ultimo = null; conferme = 0; aggiornaGuida();
+}
 function avvia() {
+  if (attivo || avviando) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { dici('Fotocamera non disponibile in questo browser. Scrivi le 13 cifre.', true); return; }
+  avviando = true;
   navigator.mediaDevices.getUserMedia({audio: false, video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}})
     .then(function (s) {
       flusso = s; video.srcObject = s;
@@ -321,11 +334,14 @@ function avvia() {
     }).then(function () {
       var t = flusso && flusso.getVideoTracks()[0], c = t && t.getCapabilities ? t.getCapabilities() : {};
       if (c.focusMode && c.focusMode.indexOf('continuous') >= 0) t.applyConstraints({advanced: [{focusMode: 'continuous'}]}).catch(function () {});
-      attivo = true; dici('Inquadra il barcode nel riquadro.'); ciclo();
+      avviando = false; attivo = true; dici('Inquadra il barcode nel riquadro.'); ciclo();
     }).catch(function (e) {
+      avviando = false;
       dici('Fotocamera non autorizzata o non disponibile (' + (e.name || e.message) + '). Consenti l’accesso alla fotocamera per questo sito, oppure scrivi le 13 cifre.', true);
     });
 }
-document.addEventListener('visibilitychange', function () { if (document.hidden) ferma(); else if (!finito && !attivo) avvia(); });
+// Scheda aperta in un'altra scheda del browser: al ritorno la fotocamera riparte da sola.
+document.addEventListener('visibilitychange', function () { if (document.hidden) ferma(); else avvia(); });
+window.addEventListener('pageshow', function () { if (!document.hidden) avvia(); });
 avvia();
 </script></body></html>
